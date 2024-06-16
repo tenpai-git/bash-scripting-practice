@@ -1,55 +1,63 @@
 ---
-- name: Setup Development Environment (Debian)
-  #Set host, user pubkey, ssh, and hostname.
+- name: Configure Ghostwriter
   hosts: jab_contact
   become: true
+  remote_user: yang
   vars_files:
-    - secrets.yml
-  tasks:
-
-# This will only work with the variables set and if you ran the ghostwriter setup playbook.
-
-    #Ansible vault: 
+    #Vault must contain the following variables: 
     #ansible_user: username
     #letsencrypt_hostname: example.com (nginx certname)
     #ghostwriter_url: ghostwriter.nginx.com
     #ghostwriter_user_ip: your.internet.ip.address
+    - secrets.yml
 
-    - name: Create a symbolic link for the host SSL locations (locations assume lets encrypt)
+  tasks:
+
+    #This task assumes that you have an existing letsencrypt setup and that you use the "--cert-name" on renewal so that the parameter for the letsencrypt hostname does not change.
+    #You may want to make a cronjob for this on the server. May update with this later. 
+    - name: Create a copy of the host SSL locations (locations assume LetsEncrypt/Certbot Defaults)
       ansible.builtin.file:
-        src: {{ item.src }}
-        dest: {{ item.dest }}
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
         owner: yang
         group: yang
-        state: link
+        remote_src: yes
       loop: 
-        - src: { 'home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.key', dest: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/privkey.pem' 
-        - src: { '/home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.crt', dest: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/cert.pem' 
-        - src: { '/home/{{ ansible_user }}/ghostwriter/ssl/dhparam.pem', dest: '/etc/letsencrypt/ssl-dhparams.pem' 
+        - { dest: '/home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.key', src: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/privkey.pem'}
+        - { dest: '/home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.crt', src: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/cert.pem'}
+        - { dest: '/home/{{ ansible_user }}/ghostwriter/ssl/dhparam.pem', src: '/etc/letsencrypt/ssl-dhparams.pem'}
 
-    - name: Run the install script, not idempotent 
-      ansible.builtin.script:
-        cmd: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli install"
+    #This task assumes you do not have nginx or another webserver already up and running on this host. If you do, you will need to change production.yml and nginx.conf in the ghostwriter files before building the containers to the ports you would like instead of 80 and 443. A simple proxy pass will not be sufficient.
+    - name: Run the install script.
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux install"
+      register: ghostwriter_install
+
+    - name: Print any install script output. 
+      ansible.builtin.debug:
+        msg: "{{ ghostwriter_install.stdout }}" 
 
     - name: Retrieve administrator default credentials.
-  command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config allowhost {{ghostwriter_user_ip}}
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux config allowhost {{ghostwriter_user_ip}}"
 
+    - name: Allow Nginx Redirect Host Headers for Same Domain
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux config allowhost {{ghostwriter_url}}"
+        
     - name: Set ghostwriter domain
-      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config set NGINX_HOST {{ghostwriter_url}}
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux config set NGINX_HOST {{ ghostwriter_url }}"
 
     - name: Set ghostwriter down for new config.
-      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli containers down
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux containers down"
 
     - name: Set ghostwriter up.
-      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli containers up
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux containers up"
 
     - name: Retrieve administrator default credentials.
-      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config get admin_password
+      ansible.builtin.command: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli-linux config get admin_password"
       register: ghostwriter_admin
-      
+
     - name: Print default credentials.
-      debug: 
-        msg: "Ghostwriter installation successful! Your default admin login password is: {{ghostwriter_admin.stdout}} \n Your default login is: admin \n Your default URL to login is: {{ghostwriter_url}} and you can access it from: {{ghostwriter_user_ip}}. Be sure to immediately update the administrator user after verifying SSL is working."
+      ansible.builtin.debug: 
+        msg: "Ghostwriter installation successful! Your default admin login password is: {{ ghostwriter_admin.stdout }} \n Your default login is: admin \n Your default URL to login is: {{ ghostwriter_url }} and you can access it from: {{ ghostwriter_user_ip }}. Be sure to immediately update the administrator user after verifying SSL is working."
 
   handlers:   
     - name: restart_docker
@@ -58,3 +66,4 @@
         state: restarted
         enabled: true
 
+#Common error resolution - if django is taking a long time to start, try resetting the postgresql password. 

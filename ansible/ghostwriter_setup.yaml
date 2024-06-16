@@ -1,5 +1,5 @@
 ---
-- name: Setup Development Environment (Debian)
+- name: Setup Ghostwriter
   hosts: jab_contact
   become: true
   vars_files:
@@ -26,6 +26,7 @@
       notify: restart_docker
 
     - name: Clone Ghostwriter 
+      remote_user: "{{ ansible_user }}"
       ansible.builtin.git:
         repo: https://github.com/GhostManager/Ghostwriter.git
         dest: '/home/{{ ansible_user }}/ghostwriter/'
