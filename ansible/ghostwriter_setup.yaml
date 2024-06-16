@@ -1,0 +1,49 @@
+---
+- name: Setup Development Environment (Debian)
+  #Set host, user pubkey, ssh, and hostname.
+  hosts: jab_contact
+  become: true
+  vars_files:
+    - secrets.yml
+  tasks:
+
+    #Ansible vault: 
+    #ansible_user: username
+ 
+
+    - name: Update Repos and Current Programs
+      apt:
+        name: "*"
+        state: latest
+
+    - name: Install Git, Docker/Compose, and other basic utilities.
+      apt:
+        pkg: 
+        - curl
+        - git
+        - sudo
+        - vim
+        - gnupg
+        - docker
+        - docker-compose
+        state: latest
+      notify: restart_docker
+
+    - name: Clone Ghostwriter 
+      ansible.builtin.git:
+        repo: https://github.com/GhostManager/Ghostwriter.git
+        dest: '/home/{{ ansible_user }}/ghostwriter/'
+        clone: yes
+        update: yes
+
+    - name: Run the install script, not idempotent 
+      ansible.builtin.script:
+        cmd: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli install"
+
+  handlers:   
+    - name: restart_docker
+      service:
+        name: docker 
+        state: restarted
+        enabled: true
+

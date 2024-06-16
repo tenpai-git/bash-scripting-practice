@@ -1,0 +1,60 @@
+---
+- name: Setup Development Environment (Debian)
+  #Set host, user pubkey, ssh, and hostname.
+  hosts: jab_contact
+  become: true
+  vars_files:
+    - secrets.yml
+  tasks:
+
+# This will only work with the variables set and if you ran the ghostwriter setup playbook.
+
+    #Ansible vault: 
+    #ansible_user: username
+    #letsencrypt_hostname: example.com (nginx certname)
+    #ghostwriter_url: ghostwriter.nginx.com
+    #ghostwriter_user_ip: your.internet.ip.address
+
+    - name: Create a symbolic link for the host SSL locations (locations assume lets encrypt)
+      ansible.builtin.file:
+        src: {{ item.src }}
+        dest: {{ item.dest }}
+        owner: yang
+        group: yang
+        state: link
+      loop: 
+        - src: { 'home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.key', dest: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/privkey.pem' 
+        - src: { '/home/{{ ansible_user }}/ghostwriter/ssl/ghostwriter.crt', dest: '/etc/letsencrypt/live/{{ letsencrypt_hostname }}/cert.pem' 
+        - src: { '/home/{{ ansible_user }}/ghostwriter/ssl/dhparam.pem', dest: '/etc/letsencrypt/ssl-dhparams.pem' 
+
+    - name: Run the install script, not idempotent 
+      ansible.builtin.script:
+        cmd: "/home/{{ ansible_user }}/ghostwriter/ghostwriter-cli install"
+
+    - name: Retrieve administrator default credentials.
+  command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config allowhost {{ghostwriter_user_ip}}
+
+    - name: Set ghostwriter domain
+      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config set NGINX_HOST {{ghostwriter_url}}
+
+    - name: Set ghostwriter down for new config.
+      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli containers down
+
+    - name: Set ghostwriter up.
+      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli containers up
+
+    - name: Retrieve administrator default credentials.
+      command: /home/{{ ansible_user }}/ghostwriter/ghostwriter-cli config get admin_password
+      register: ghostwriter_admin
+      
+    - name: Print default credentials.
+      debug: 
+        msg: "Ghostwriter installation successful! Your default admin login password is: {{ghostwriter_admin.stdout}} \n Your default login is: admin \n Your default URL to login is: {{ghostwriter_url}} and you can access it from: {{ghostwriter_user_ip}}. Be sure to immediately update the administrator user after verifying SSL is working."
+
+  handlers:   
+    - name: restart_docker
+      service:
+        name: docker 
+        state: restarted
+        enabled: true
+
